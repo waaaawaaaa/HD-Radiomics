@@ -1,0 +1,43 @@
+#!/bin/bash
+# 对mapping去颅骨   直接使用T2Mapping去颅骨后的结果
+# 2025/01/07 zhumengying
+
+# 设置路径
+seq="T2star_Mapping"  # 定义 seq 变量
+INPUT_DIR="数据"  # 修改反斜杠为正斜杠
+OUTPUT_swapdim="${INPUT_DIR}/swapdim/${seq}"
+OUTPUT_DIR="${INPUT_DIR}/qulugu/${seq}_mask"
+AALDIR="${INPUT_DIR}/AAL"
+maskDIR="/DATA2024/zhmy/HD_DATA/qulugu_mask_is_ok/T2Mapping"
+
+# 创建输出目录
+mkdir -p "${OUTPUT_swapdim}"
+mkdir -p "${OUTPUT_DIR}"
+
+# 遍历所有以 sub 开头的文件
+for SUBfile in "${INPUT_DIR}/2nii/${seq}/sub"*; do
+    if [ -f "${SUBfile}" ]; then
+        # 提取文件名，不包括路径
+        filename=$(basename "${SUBfile}")
+        # 去除后缀部分，得到基本文件名
+        base_filename="${filename%_${seq}.nii.gz}"  # 修正这里，去除后缀
+        base_filename=$(echo "${base_filename}" | xargs)  # 去掉空格
+
+        OUTPUT_sub="${OUTPUT_swapdim}/${base_filename}"
+        mkdir -p "${OUTPUT_sub}"
+        echo "${OUTPUT_sub}"
+
+        # 执行 fslswapdim 操作，交换维度
+        echo "执行 fslswapdim 命令: fslswapdim \"${SUBfile}\" RL PA IS \"${OUTPUT_sub}/${base_filename}_${seq}_swapdim.nii.gz\""
+        fslswapdim "${SUBfile}" RL PA IS "${OUTPUT_sub}/${base_filename}_${seq}_swapdim.nii.gz"
+
+        # 执行 fslmaths 操作，将脑掩膜应用到图像
+        echo "执行 fslmaths 命令: fslmaths \"${OUTPUT_sub}/${base_filename}_${seq}_swapdim.nii.gz\" -mul \"${maskDIR}/${base_filename}_T2Mapping_brain_mask.nii.gz\" \"${OUTPUT_DIR}/${base_filename}_${seq}_brain.nii.gz\""
+        fslmaths "${OUTPUT_sub}/${base_filename}_${seq}_swapdim.nii.gz" -mul "${maskDIR}/${base_filename}_T2Mapping_brain_mask.nii.gz" "${OUTPUT_DIR}/${base_filename}_${seq}_brain.nii.gz"
+
+        # 输出处理完成的信息
+        echo "${base_filename} 完成所有操作。"
+    else
+        echo "${filename} 不是一个有效的文件，跳过..."
+    fi
+done

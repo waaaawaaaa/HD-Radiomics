@@ -1,0 +1,110 @@
+% 提取特征值 AAL 3v1   保存mat  提取一阶特征
+% 2025/06/07 zhumengying
+
+clc; clear;
+
+% 设置输入和输出路径
+seq = 'T2Mapping';
+input_file_root = ['H:\重建数据\mapping_unet_best\peizhun\PD_out_t2m\ROI_processed\' seq];
+input_file_seq = ['H:\重建数据\mapping_unet_best\qulugu\' seq];
+
+outpath_ROI = [input_file_root '\ROI\'];
+% 检查输出文件夹是否存在，如果不存在，则创建
+if ~exist(outpath_ROI, 'dir')
+    mkdir(outpath_ROI);
+end
+
+%8个小ROI
+% roiInfo = struct('Value', num2cell([301, 303, 309, 311, 313, 317, 323, 333]), ...
+%                  'Name', {'Pu', 'Ca', 'GPe', 'GPi', 'SN', 'RN', 'TH', 'DN'});
+roiInfo = struct('Value', num2cell([303, 301, 309, 311, 323, 317, 313, 333]), ...
+                 'Name', {'Cd', 'Put', 'GPe', 'GPi', 'TH', 'RN', 'SN', 'DN'});
+
+phenotypeFile = 'H:\重建数据\亨廷顿舞蹈症\亨廷顿_表型数据.xlsx';
+outputExcelFile = [input_file_root '_腐蚀1_T2_cx_zhuzhu4.xlsx'];
+
+% 初始化保存统计特征的变量
+stats = struct('ROI', {}, 'Mean', {}, 'Variance', {}, 'RMS', {}, 'Skewness', {}, 'Kurtosis', {}, ...
+               'P10', {}, 'P25', {}, 'P50', {}, 'P75', {}, 'P90', {}, ...
+               'Min', {}, 'Max', {}, 'Volume', {}, 'ClassicValue', {});
+
+% 读取亨廷顿_表型数据.xlsx 文件
+phenotypeData = readtable(phenotypeFile, 'Range', 'A1:S70', 'VariableNamingRule', 'preserve');
+
+% 列出文件夹中以序列名+.nii.gz结尾的文件
+filePattern = fullfile(input_file_root,'T2_腐蚀1_zhuzhu', ['sub*' '.nii.gz']);%35个受试者
+files = dir(filePattern);
+
+% 遍历找到的文件，并进行处理
+for i = 1:length(files)
+    % 获取当前文件的路径和名称
+    atlasFile_gz = fullfile(files(i).folder, files(i).name);
+    filename = strrep(files(i).name, '_processedROI.nii.gz', '');  %sub001_HC  sub001
+
+    % 构造对应的序列文件路径
+    seqFile = [input_file_seq '\' filename '_' seq '_brain.nii.gz'];
+
+    % 读取 NIfTI 文件数据
+    atlas = niftiread(atlasFile_gz);
+    seq_image = niftiread(seqFile);
+
+    % 在表型数据中提取 Var1编号 列值为 filename的值的行
+    matchingRows = strcmp(phenotypeData.ID, filename);
+    
+    % 获取对应的 Var17 运动分类2列的值
+    classic = phenotypeData.class_bao(matchingRows);
+    age = phenotypeData.AGE(matchingRows);
+    CAG = phenotypeData.CAG(matchingRows);
+    
+    % 提取 ROI 数据
+    for j = 1:length(roiInfo)
+        % 创建逻辑掩膜
+        roiMask = (atlas == roiInfo(j).Value);
+        % 从原始图像中提取对应 ROI 的数据
+        Data = seq_image(roiMask)*100; 
+        roiInfo(j).Data = Data; % 保存提取的值到结构数组中
+        roiInfo(j).classes = classic; % 保存提取的值到结构数组中
+
+        % 计算统计特征
+        if ~isempty(Data)
+            stats(end+1).Subject = filename;
+            stats(end).ClassicValue = classic; % 将classic值添加到结构数组中
+            stats(end).ROI = roiInfo(j).Name; % 使用 ROI 名称
+            
+            stats(end).Mean = mean(Data); % 均值
+            stats(end).Variance = var(Data); % 方差
+            stats(end).RMS = rms(Data); % 计算 RMS（均方根）
+            stats(end).Skewness = skewness(Data); % 计算偏度
+            stats(end).Kurtosis = kurtosis(Data); % 计算峰度
+            
+            % 计算各种分位数
+            percentiles = [10, 25, 50, 75, 90];
+            percentile_values = prctile(Data, percentiles);
+            stats(end).P10 = percentile_values(1);
+            stats(end).P25 = percentile_values(2);
+            stats(end).P50 = percentile_values(3);
+            stats(end).P75 = percentile_values(4);
+            stats(end).P90 = percentile_values(5);
+            
+            stats(end).Min = min(Data); % 最小值
+            stats(end).Max = max(Data); % 最大值
+            stats(end).Volume = caculate_volume(length(Data))/1000; % 体积计算
+
+%             stats(end).Median = median(Data); % 中位数
+%             stats(end).StdDev = std(Data); % 标准差
+%             stats(end).numVoxels = length(Data); % 占多少个像素
+%             stats(end).age = age;
+%             stats(end).CAG = CAG;
+%             stats(end).CAP = age * (CAG - 33.66);
+        end
+    end
+    % 保存提取的 ROI 数据到 mat 文件
+    outputFileName = [outpath_ROI '\' filename '_roiData.mat'];
+    save(outputFileName, 'roiInfo');
+end
+
+% 将统计特征转换为表格并保存到 Excel 文件
+T = struct2table(stats);
+writetable(T, outputExcelFile);
+
+disp('统计特征计算完成并保存到 Excel 文件中。');
